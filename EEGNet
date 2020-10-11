@@ -1,0 +1,269 @@
+import os
+import pandas as pd
+
+from torch.utils.data import  DataLoader
+import numpy as np
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, accuracy_score
+import torch
+import torch.nn as nn
+from torch.autograd import Variable
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import Dataset
+from torchvision import transforms
+
+
+class ToTensor(object):
+    """Convert ndarrays in sample to Tensors."""
+
+    def __call__(self, img):
+        # swap color axis because
+        # numpy image: H x W x C
+        # torch image: C X H X W
+        _img = np.array(img).astype(np.float32)[np.newaxis,:,:]
+        # img = np.array(img).astype(np.float32).transpose((2, 0, 1))
+        _img= torch.from_numpy(_img).float()
+
+        return _img
+
+class EEGData(Dataset):
+
+    def __init__(self, base_dir='D:\\modelData', split='train'):
+        super().__init__()
+
+        self.images = []
+        self.label = []
+
+        self._base_dir = base_dir
+        _splits_dir_img = os.path.join(self._base_dir, 'train_data')
+        _splits_dir_label = os.path.join(self._base_dir, 'train_label')
+        # 返回表格训练测试样本对应的样本索引
+
+        path_img = sorted(os.listdir(_splits_dir_img))
+        path_label = os.listdir(_splits_dir_label)
+
+        for i in range(len(path_img)):
+            path_Img = os.path.join(_splits_dir_img, (str(i)+'.xlsx'))
+            path_label = os.path.join(_splits_dir_label,'label.xlsx')
+            self.images.append(path_Img)
+            self.label.append(path_label)
+
+        assert len(self.images) == len(self.label)
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, index):
+        # 获取Excel对应的元素数据
+        # print('该方法被执行！！！')
+        # print(self.images[index])
+        data_frame_event = pd.read_excel(self.images[index], sheet_name=None, header=None)
+        _img = data_frame_event['Sheet1'].values[1:,1:]
+        # print(_img.shape)
+        # breakpoint()
+        composed_transforms = transforms.Compose([
+            # tr.RandomGaussianBlur(),
+            # Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ToTensor()])
+
+        _img = composed_transforms(_img)
+
+        # _img = pd.read_excel(self.images[index], sheet_name=None).values
+        # print(_img)
+        # breakpoint()
+        # 读取txt文档
+        if index < 3000:
+            _traget = 0
+        else:
+            _traget = 1
+
+        _traget = np.array(_traget).astype(np.int8)
+        _traget = torch.from_numpy(_traget)
+        return  _img, _traget
+
+    def __str__(self):
+        return 'VOC2012(split=' + str(self.split) + ')'
+
+class EEGNet(nn.Module):
+    def __init__(self):
+        super(EEGNet, self).__init__()
+        self.T = 120
+
+        # Layer 1
+        self.conv1 = nn.Conv2d(1, 16, (1, 20), padding=0)
+        self.batchnorm1 = nn.BatchNorm2d(16, False)
+
+        # Layer 2
+        self.padding1 = nn.ZeroPad2d((16, 17, 0, 1))
+        self.conv2 = nn.Conv2d(1, 4, (2, 32))
+        self.batchnorm2 = nn.BatchNorm2d(4, False)
+        self.pooling2 = nn.MaxPool2d(2, 4)
+
+        # Layer 3
+        self.padding2 = nn.ZeroPad2d((2, 1, 4, 3))
+        self.conv3 = nn.Conv2d(4, 4, (8, 4))
+        self.batchnorm3 = nn.BatchNorm2d(4, False)
+        self.pooling3 = nn.MaxPool2d((2, 4))
+
+        # FC Layer
+        # NOTE: This dimension will depend on the number of timestamps per sample in your data.
+        # I have 120 timepoints.
+        self.fc1 = nn.Linear(72 , 1)
+
+    def forward(self, x):
+        # Layer 1
+        x = F.relu(self.conv1(x))
+        x = self.batchnorm1(x)
+        x = F.dropout(x, 0.25)
+        x = x.permute(0, 3, 1, 2)
+
+        # Layer 2
+        x = self.padding1(x)
+        x = F.relu(self.conv2(x))
+        x = self.batchnorm2(x)
+        x = F.dropout(x, 0.25)
+        x = self.pooling2(x)
+
+        # Layer 3
+        x = self.padding2(x)
+        x = F.relu(self.conv3(x))
+        x = self.batchnorm3(x)
+        x = F.dropout(x, 0.25)
+        x = self.pooling3(x)
+
+        # FC Layer
+        x = x.view(-1, 72)
+        x = torch.sigmoid(self.fc1(x))
+        return x
+
+class MyEEGNet1(nn.Module):
+    def __init__(self):
+        super(MyEEGNet1, self).__init__()
+
+        self.conv1 = nn.Conv2d(1,1,kernel_size=3,padding=1)
+        self.batchnormal = nn.BatchNorm2d(1)
+
+        self.fc1 = nn.Linear(3000, 1)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = self.batchnormal(x)
+
+        x = x.view(-1, 20*150)
+        # print(x.shape)
+        # breakpoint()
+        x = torch.sigmoid(self.fc1(x))
+        return x
+
+class MyEEGNet2(nn.Module):
+    def __init__(self):
+        super(MyEEGNet2, self).__init__()
+
+        self.conv1 = nn.Conv2d(1,1,kernel_size=3,padding=1)
+        self.batchnormal = nn.BatchNorm2d(1)
+
+        self.fc1 = nn.Linear(3000, 1)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = self.batchnormal(x)
+
+        x = x.view(-1, 20*150)
+        # print(x.shape)
+        # breakpoint()
+        x = torch.sigmoid(self.fc1(x))
+        return x
+
+
+class LeNet(nn.Module):
+    def __init__(self):
+        super(LeNet, self).__init__()
+        # Conv1 和 Conv2：卷积层，每个层输出在卷积核（小尺寸的权重张量）和同样尺寸输入区域之间的点积；
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(10, 20, kernel_size=3, padding=1)
+        self.conv2_drop = nn.Dropout2d()
+        self.fc1 = nn.Linear(5*37*20, 200)
+        self.fc2 = nn.Linear(200, 1)
+
+    def forward(self, x):
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))  # 使用 max 运算执行特定区域的下采样（通常 2x2 像素）；
+        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+        x = x.view(-1, 5*37*20)
+        x = F.relu(self.fc1(x))  # 修正线性单元函数，使用逐元素的激活函数 max(0,x)；
+        x = F.dropout(x)  # Dropout2D随机将输入张量的所有通道设为零。当特征图具备强相关时，dropout2D 提升特征图之间的独立性；
+        x = self.fc2(x)
+
+        return torch.sigmoid(x)
+
+# net = MyEEGNet1().cuda()
+net = EEGNet().cuda()
+# print(net.forward(Variable(torch.Tensor(np.random.rand(1, 1, 120, 64)).cuda(0))))
+criterion = nn.BCELoss()
+# optimizer = optim.Adam(net.parameters())
+sgdoptimizer = optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
+
+def evaluate(model, X, Y, params=["acc"]):
+    results = []
+    batch_size = 100
+
+    predicted = []
+
+    for i in range(int(len(X) / batch_size)):
+        s = i * batch_size
+        e = i * batch_size + batch_size
+
+        inputs = Variable(torch.from_numpy(X[s:e]).cuda(0))
+        pred = model(inputs)
+
+        predicted.append(pred.data.cpu().numpy())
+
+    inputs = Variable(torch.from_numpy(X).cuda(0))
+    predicted = model(inputs)
+
+    predicted = predicted.data.cpu().numpy()
+
+    for param in params:
+        if param == 'acc':
+            results.append(accuracy_score(Y, np.round(predicted)))
+        if param == "auc":
+            results.append(roc_auc_score(Y, predicted))
+        if param == "recall":
+            results.append(recall_score(Y, np.round(predicted)))
+        if param == "precision":
+            results.append(precision_score(Y, np.round(predicted)))
+        if param == "fmeasure":
+            precision = precision_score(Y, np.round(predicted))
+            recall = recall_score(Y, np.round(predicted))
+            results.append(2 * precision * recall / (precision + recall))
+    return results
+
+filename = 'model.pth'
+
+if __name__ == '__main__':
+
+    data = EEGData()
+    dataloader = DataLoader(data, batch_size=16, shuffle=True, num_workers=2)
+
+    for epoch in range(10):
+
+        running_loss = 0.0
+        for i, (image_, target_) in enumerate(dataloader):
+
+            image, target = image_, target_
+            image, target = image.cuda(), target.cuda()
+            target = target.float()
+
+            sgdoptimizer.zero_grad()
+            outputs = net(image)
+
+            # targets = torch.FloatTensor([0]).cuda()
+
+            loss = criterion(outputs, target)
+            loss.backward()
+            sgdoptimizer.step()
+
+            running_loss += loss.data
+
+        torch.save(net.state_dict(), filename)
+        print("Training Loss ", running_loss)
+
