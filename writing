@@ -1,0 +1,6 @@
+    近年来用于对象识别和分类任务的深度卷积网络(Convolutional Neural Network，CNN) 已成功应用于分段或像
+素级的分类，在卷积神经网络的基础上，通过引入完全卷积网络( Fully Convolutional Network，FCN)，利用
+反卷积层代替全连接层的方式对最终卷积层的Feature map进行上采样操作，能够有效地保留图像的空间信息，对
+图像实现像素级分类，进而实现图像语义分割。
+
+
